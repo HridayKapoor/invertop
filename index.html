@@ -1,0 +1,156 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Universal PDF Inverter</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <style>
+        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; background: #121212; color: #e0e0e0; text-align: center; padding: 20px; margin: 0; }
+        
+        .container { 
+            max-width: 600px; margin: 0 auto; background: #1e1e1e; 
+            padding: 30px 20px; border-radius: 16px; box-shadow: 0 4px 20px rgba(0,0,0,0.6);
+        }
+
+        h1 { margin: 0 0 20px 0; font-size: 24px; color: #fff; }
+        p { color: #aaa; margin-bottom: 30px; font-size: 14px; }
+
+        /* Mobile-First Button Layout */
+        .btn-group { display: flex; flex-direction: column; gap: 15px; }
+        
+        button { 
+            padding: 20px; font-size: 18px; cursor: pointer; color: white; 
+            border: none; border-radius: 12px; font-weight: 600; width: 100%;
+            display: flex; align-items: center; justify-content: center; gap: 10px;
+            transition: transform 0.1s, opacity 0.2s;
+        }
+        button:active { transform: scale(0.96); }
+        
+        .btn-folder { background: linear-gradient(135deg, #007acc, #005f9e); }
+        .btn-files { background: linear-gradient(135deg, #28a745, #1e7e34); }
+        
+        .sub-text { font-size: 12px; font-weight: normal; opacity: 0.8; display: block; margin-top: 4px; }
+
+        #drop-zone { 
+            border: 2px dashed #444; padding: 30px; margin-top: 30px; 
+            border-radius: 12px; color: #666; font-size: 14px;
+        }
+        
+        #status { margin-top: 25px; white-space: pre-line; line-height: 1.5; font-size: 15px; }
+        .success { color: #4ec9b0; }
+        .error { color: #ff6b6b; }
+
+        /* Desktop override */
+        @media (min-width: 600px) {
+            .btn-group { flex-direction: row; }
+        }
+    </style>
+    
+    <script src="https://unpkg.com/pdf-lib@1.17.1/dist/pdf-lib.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/2.0.5/FileSaver.min.js"></script>
+</head>
+<body>
+
+    <div class="container">
+        <h1>Smart PDF Inverter</h1>
+        <p>Private & Offline. Works on iPad, Android & PC.</p>
+
+        <div class="btn-group">
+            <button class="btn-folder" onclick="document.getElementById('folderInput').click()">
+                <div>
+                    <div>📂 Select Folder</div>
+                    <span class="sub-text">For PC/Laptop (ZIP Output)</span>
+                </div>
+            </button>
+            
+            <button class="btn-files" onclick="document.getElementById('fileInput').click()">
+                <div>
+                    <div>📄 Select Files</div>
+                    <span class="sub-text">For iPad/Android (Individual)</span>
+                </div>
+            </button>
+        </div>
+
+        <input type="file" id="folderInput" webkitdirectory style="display:none">
+        <input type="file" id="fileInput" multiple style="display:none">
+
+        <div id="drop-zone" onclick="document.getElementById('fileInput').click()">
+            Tap here or Drag files to process
+        </div>
+        
+        <h3 id="status">Ready</h3>
+    </div>
+
+    <script>
+        const { PDFDocument, rgb, BlendMode } = PDFLib;
+        const wait = (ms) => new Promise(resolve => setTimeout(resolve, ms));
+
+        async function invertPdf(file) {
+            const arrayBuffer = await file.arrayBuffer();
+            const pdfDoc = await PDFDocument.load(arrayBuffer);
+            const pages = pdfDoc.getPages();
+            for (const page of pages) {
+                const { width, height } = page.getSize();
+                page.drawRectangle({
+                    x: 0, y: 0, width, height,
+                    color: rgb(1, 1, 1),
+                    blendMode: BlendMode.Difference,
+                });
+            }
+            return await pdfDoc.save();
+        }
+
+        // --- PC MODE (ZIP) ---
+        async function processAsZip(files) {
+            const status = document.getElementById('status');
+            var zip = new JSZip();
+            let count = 0;
+            status.innerText = "Preparing ZIP...";
+
+            for (const file of files) {
+                if(file.type !== "application/pdf") continue;
+                try {
+                    status.innerText = `Zipping ${count + 1}/${files.length}: ${file.name}`;
+                    const pdfBytes = await invertPdf(file);
+                    const path = file.webkitRelativePath || file.name;
+                    zip.file(path, pdfBytes);
+                    count++;
+                } catch (e) { console.error(e); }
+            }
+            status.innerText = "Generating Final ZIP...";
+            zip.generateAsync({type:"blob"}).then(function(content) {
+                saveAs(content, "Dark_Notes.zip");
+                status.innerHTML = `<span class="success">✔ DONE! Saved ZIP.</span>`;
+            });
+        }
+
+        // --- MOBILE MODE (Individual) ---
+        async function processAsIndividual(files) {
+            const status = document.getElementById('status');
+            let count = 0;
+            status.innerText = `Starting ${files.length} files...`;
+
+            for (const file of files) {
+                if(file.type !== "application/pdf") continue;
+                try {
+                    status.innerText = `Processing ${count + 1}/${files.length}: ${file.name}`;
+                    const pdfBytes = await invertPdf(file);
+                    const blob = new Blob([pdfBytes], { type: "application/pdf" });
+                    saveAs(blob, "DARK_" + file.name);
+                    count++;
+                    await wait(800); // Delay to prevent blocking
+                } catch (e) { console.error(e); }
+            }
+            status.innerHTML = `<span class="success">✔ All ${count} files downloaded.</span>`;
+        }
+
+        document.getElementById('folderInput').addEventListener('change', (e) => {
+            if(e.target.files.length > 0) processAsZip(e.target.files);
+        });
+
+        document.getElementById('fileInput').addEventListener('change', (e) => {
+            if(e.target.files.length > 0) processAsIndividual(e.target.files);
+        });
+    </script>
+</body>
+</html>
