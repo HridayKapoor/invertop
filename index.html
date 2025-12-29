@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Universal PDF Inverter</title>
+    <title>Universal Inverter</title>
     <style>
         /* --- GLOBAL STYLES --- */
         body { 
@@ -36,18 +36,13 @@
         .label { font-size: 16px; font-weight: bold; }
         .desc { font-size: 11px; opacity: 0.8; margin-top: 4px; font-weight: normal; }
 
-        /* Blue Button (Desktop/Zip) */
         .btn-zip { background: linear-gradient(135deg, #007acc, #005f9e); }
-        
-        /* Green Button (Mobile/Files) */
         .btn-files { background: linear-gradient(135deg, #28a745, #1e7e34); }
 
         /* --- STATUS & LIST --- */
         #status { margin-top: 20px; font-size: 15px; color: #ccc; white-space: pre-line; line-height: 1.5; }
         .success { color: #4ec9b0; font-weight: bold; }
-        .error { color: #ff6b6b; }
 
-        /* Mobile Download List (iPad Fix) */
         #file-list { list-style: none; padding: 0; margin-top: 20px; width: 100%; text-align: left; }
         .file-item {
             background: #2d2d2d; margin-bottom: 10px; padding: 15px; border-radius: 8px;
@@ -60,9 +55,8 @@
             border-radius: 6px; font-size: 13px; font-weight: bold;
         }
 
-        /* --- MOBILE RESPONSIVENESS --- */
         @media (max-width: 600px) {
-            .btn-group { grid-template-columns: 1fr; } /* Stack buttons on phone */
+            .btn-group { grid-template-columns: 1fr; } 
             .container { padding: 20px 15px; }
         }
     </style>
@@ -81,13 +75,13 @@
         <button class="btn-zip" onclick="document.getElementById('folderInput').click()">
             <span class="icon">📂</span>
             <span class="label">Select Folder</span>
-            <span class="desc">Best for PC (Downloads ZIP)</span>
+            <span class="desc">PC/Mac (Output: ZIP)</span>
         </button>
 
         <button class="btn-files" onclick="document.getElementById('fileInput').click()">
             <span class="icon">📄</span>
             <span class="label">Select Files</span>
-            <span class="desc">Best for iPad/Android</span>
+            <span class="desc">iPad/Android (Output: Files)</span>
         </button>
     </div>
 
@@ -102,12 +96,15 @@
     const { PDFDocument, rgb, BlendMode } = PDFLib;
     const wait = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 
-    // --- 1. CORE INVERT LOGIC (Used by both modes) ---
+    // Helper to rename file: "Name.pdf" -> "Name_inverterop.pdf"
+    function getNewName(originalName) {
+        return originalName.replace(/\.pdf$/i, "") + "_inverterop.pdf";
+    }
+
     async function invertPdf(file) {
         const arrayBuffer = await file.arrayBuffer();
         const pdfDoc = await PDFDocument.load(arrayBuffer);
         const pages = pdfDoc.getPages();
-
         for (const page of pages) {
             const { width, height } = page.getSize();
             page.drawRectangle({
@@ -119,45 +116,46 @@
         return await pdfDoc.save();
     }
 
-    // --- 2. ZIP MODE (PC/Folder Structure) ---
+    // --- ZIP MODE ---
     async function processAsZip(files) {
         const status = document.getElementById('status');
         const list = document.getElementById('file-list');
-        list.innerHTML = ""; // Clear list
+        list.innerHTML = ""; 
         
         var zip = new JSZip();
         let count = 0;
         
-        // Filter PDFs
         const pdfFiles = Array.from(files).filter(f => f.type === "application/pdf");
         if(pdfFiles.length === 0) { status.innerText = "No PDFs found."; return; }
 
-        status.innerText = `Preparing to ZIP ${pdfFiles.length} files...`;
+        status.innerText = `Preparing ${pdfFiles.length} files...`;
 
         for (const file of pdfFiles) {
             try {
                 status.innerText = `Processing ${count + 1}/${pdfFiles.length}: ${file.name}`;
                 const pdfBytes = await invertPdf(file);
                 
-                // Keep folder structure if possible
-                const path = file.webkitRelativePath || file.name;
-                zip.file(path, pdfBytes);
+                // Rename inside ZIP
+                const originalPath = file.webkitRelativePath || file.name;
+                const newPath = getNewName(originalPath);
+                
+                zip.file(newPath, pdfBytes);
                 count++;
             } catch (e) { console.error(e); }
         }
 
-        status.innerText = "Zipping... (This might take a moment)";
+        status.innerText = "Zipping... (Please wait)";
         zip.generateAsync({type:"blob"}).then(function(content) {
-            saveAs(content, "Dark_Notes.zip");
-            status.innerHTML = `<span class="success">✔ DONE! Saved 'Dark_Notes.zip'</span>`;
+            saveAs(content, "Notes_inverterop.zip");
+            status.innerHTML = `<span class="success">✔ DONE! Saved 'Notes_inverterop.zip'</span>`;
         });
     }
 
-    // --- 3. INDIVIDUAL MODE (iPad/Android Safe) ---
+    // --- INDIVIDUAL MODE ---
     async function processAsIndividual(files) {
         const status = document.getElementById('status');
         const list = document.getElementById('file-list');
-        list.innerHTML = ""; // Clear list
+        list.innerHTML = ""; 
         
         const pdfFiles = Array.from(files).filter(f => f.type === "application/pdf");
         if(pdfFiles.length === 0) { status.innerText = "No PDFs selected."; return; }
@@ -170,20 +168,20 @@
                 status.innerText = `Converting ${i + 1}/${pdfFiles.length}: ${file.name}`;
                 
                 const pdfBytes = await invertPdf(file);
-                const blob = new Blob([pdfBytes], { type: "application/octet-stream" }); // 'octet-stream' forces download on Safari
-                const newName = "DARK_" + file.name;
+                const blob = new Blob([pdfBytes], { type: "application/octet-stream" });
+                const newName = getNewName(file.name);
                 const url = URL.createObjectURL(blob);
 
-                // A. Add to Manual List (The iPad Fail-Safe)
+                // Add to List
                 const li = document.createElement("li");
                 li.className = "file-item";
                 li.innerHTML = `
-                    <span class="file-name">${file.name}</span>
+                    <span class="file-name">${newName}</span>
                     <a href="${url}" download="${newName}" class="save-btn">Save PDF</a>
                 `;
                 list.appendChild(li);
 
-                // B. Try Auto-Download (Best effort)
+                // Auto-Download
                 setTimeout(() => {
                     const link = document.createElement('a');
                     link.href = url;
@@ -191,17 +189,15 @@
                     document.body.appendChild(link);
                     link.click();
                     document.body.removeChild(link);
-                }, 500); // Slight delay
+                }, 500);
 
-                // Delay loop for next file
                 await wait(800);
 
             } catch (e) { console.error(e); }
         }
-        status.innerHTML = `<span class="success">✔ Done! Check your downloads or use the buttons below.</span>`;
+        status.innerHTML = `<span class="success">✔ Done! Check your downloads.</span>`;
     }
 
-    // --- LISTENERS ---
     document.getElementById('folderInput').addEventListener('change', (e) => {
         if(e.target.files.length > 0) processAsZip(e.target.files);
     });
